@@ -487,7 +487,7 @@
       if (sp > MAX_SPEED) { const k = MAX_SPEED / sp; f.vx *= k; f.vy *= k; }
       f.x += f.vx * dt;
       f.y += f.vy * dt;
-      f.rotVel = f.vx * 0.04;
+      f.rotVel = f.vx * 0.015;
       f.rot += f.rotVel * dt;
     }
 
@@ -498,7 +498,7 @@
         if (f.vy > 0) {
           const impact = Math.abs(f.vy);
           if (impact > 0.8) {
-            f.squashVel -= impact * 0.02;
+            f.squashVel -= impact * 0.006;
             if (impact > landImpact) landImpact = impact;
           }
           f.vy = -f.vy * RESTITUTION;
@@ -537,7 +537,7 @@
         b.vx += (jImp * nx) / mB; b.vy += (jImp * ny) / mB;
 
         const impact = Math.abs(vn);
-        if (impact > 0.8) { a.squashVel -= impact * 0.015; b.squashVel -= impact * 0.015; }
+        if (impact > 0.8) { a.squashVel -= impact * 0.005; b.squashVel -= impact * 0.005; }
       }
     }
   }
@@ -550,10 +550,10 @@
   // 视觉挤压弹簧
   function updateSquash() {
     for (const f of fruits) {
-      f.squashVel += (0 - f.squash) * 0.3;
-      f.squashVel *= 0.7;
+      f.squashVel += (0 - f.squash) * 0.32;
+      f.squashVel *= 0.72;
       f.squash += f.squashVel;
-      f.squash = clamp(f.squash, -0.55, 0.35);
+      f.squash = clamp(f.squash, -0.15, 0.1);   // 轻微Q弹，避免照片变形
     }
   }
 
@@ -576,7 +576,7 @@
           const newR = RADII[lvl];
           const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
           const nf = createFruit(mx, my, (a.vx + b.vx) * 0.3, -2.6, lvl, newR);
-          nf.squashVel = 0.4;          // 合成瞬间压扁再弹开
+          nf.squashVel = 0.18;         // 合成瞬间轻微压扁回弹
           newFruits.push(nf);
 
           const gain = SCORES[lvl] + (lvl === 10 ? 50 : 0);
@@ -649,7 +649,7 @@
     const sx = 1 + squash, sy = 1 - squash * 0.8;
 
     ctx.save();
-    ctx.rotate(rot * 0.1);
+    ctx.rotate(rot * 0.06);
     ctx.scale(sx, sy);
     ctx.beginPath();
     ctx.arc(0, 0, r, 0, Math.PI * 2);
@@ -665,15 +665,17 @@
     }
     ctx.restore();
 
-    // 高光
-    ctx.save();
-    ctx.rotate(rot * 0.1);
-    ctx.scale(sx, sy);
-    ctx.beginPath();
-    ctx.arc(-r * 0.28, -r * 0.28, r * 0.18, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255,255,255,0.7)';
-    ctx.fill();
-    ctx.restore();
+    // 高光（只给大水果画、且移向边缘，避免小水果看起来"中间有个点"）
+    if (r >= 18) {
+      ctx.save();
+      ctx.rotate(rot * 0.06);
+      ctx.scale(sx, sy);
+      ctx.beginPath();
+      ctx.arc(-r * 0.32, -r * 0.32, r * 0.13, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.45)';
+      ctx.fill();
+      ctx.restore();
+    }
 
     // 描边（不挤压，保持圆感）
     ctx.beginPath();
@@ -738,7 +740,7 @@
       const t = Math.min(1, (performance.now() - f.born) / 200);
       const s = easeOutBack(t);
       ctx.scale(s, s);
-      ctx.rotate(tilt * 0.5);
+      ctx.rotate(tilt * 0.35);
       drawFruitBody(f);
       ctx.restore();
     }
@@ -840,7 +842,7 @@
     aimFruit = null;
     aiming = false;
     f.vy = 1.2;
-    f.squashVel = 0.12;
+    f.squashVel = 0.06;
     fruits.push(f);                 // 同一个对象，下落的就是你瞄准的那颗
     spawnTimer = SPAWN_DELAY;       // 稍等片刻再出现下一颗，避免连点误触
     tilt = 0;
