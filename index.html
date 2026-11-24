@@ -229,9 +229,9 @@
   let bestScore = 0;
   try { bestScore = parseInt(localStorage.getItem('zffBest') || '0', 10) || 0; } catch (e) {}
 
-  // ======================== 排行榜（本地，默认昵称"玩家"） ========================
-  // 说明：这是本地排行榜，每台设备各自保存自己的 Top 榜。
-  // 想做成"全球共享榜"需要一个小后端（如 LeanCloud 免费版），需要时我可以帮你接。
+  // ======================== 排行榜（默认昵称"玩家"；可接 LeanCloud 全球榜） ========================
+  // 本地榜：每台设备各自保存自己的 Top 榜，离线可用。
+  // 全球榜：在下方配置 LeanCloud（免费）后，所有打开网址的人共用一个榜。
   const BOARD_KEY = 'zffBoard_v1';
   const NAME_KEY = 'zffName';
   let playerName = '玩家';
@@ -259,11 +259,12 @@
     board = board.slice(0, 20);
     saveBoard();
     lastEntryTs = entry.ts;
+    cloudSubmit(entry);   // 同步上传全球榜（未配置时为空操作）
     return entry;
   }
 
-  function rankOf(ts) {
-    for (let i = 0; i < board.length; i++) if (board[i].ts === ts) return i + 1;
+  function rankOf(list, ts) {
+    for (let i = 0; i < list.length; i++) if (list[i].ts === ts) return i + 1;
     return -1;
   }
 
@@ -277,18 +278,19 @@
     return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
 
-  function renderBoard() {
-    const top = board.slice(0, 10);
+  function renderBoard(list, source) {
+    const top = (list || board).slice(0, 10);
+    const isCloud = source === 'cloud';
     boardName.textContent = playerName;
     if (top.length === 0) {
-      boardTip.textContent = '暂无记录，玩一局上榜吧！';
+      boardTip.textContent = isCloud ? '🌐 全球榜暂无记录' : '暂无记录，玩一局上榜吧！';
       boardList.innerHTML = '';
       return;
     }
-    const rank = lastEntryTs ? rankOf(lastEntryTs) : -1;
+    const rank = lastEntryTs ? rankOf(top, lastEntryTs) : -1;
     if (rank > 0) boardTip.textContent = '🎉 本局上榜 · 第 ' + rank + ' 名';
     else if (lastEntryTs) boardTip.textContent = '本局得分未进前 10，继续加油！';
-    else boardTip.textContent = '点击「改名」修改昵称 · 按分数排行';
+    else boardTip.textContent = isCloud ? '🌐 全球榜（所有玩家实时同步）' : '点击「改名」修改昵称 · 按分数排行';
 
     const BADGE = ['🥇', '🥈', '🥉'];
     boardList.innerHTML = top.map((e, i) => {
@@ -303,13 +305,65 @@
   }
 
   function showBoard() {
-    renderBoard();
+    renderBoard(board.slice(0, 10), 'local');
     boardOverlay.hidden = false;
     paused = true;
+    // 异步拉取全球榜，拉到后自动替换显示（失败则保持本地榜）
+    cloudLoad().then(function (list) {
+      if (list && list.length && boardOverlay.hidden === false) renderBoard(list, 'cloud');
+    });
   }
   function closeBoard() {
     boardOverlay.hidden = true;
     paused = false;
+  }
+
+  // ======================== 全球排行榜（LeanCloud 国内版，可选） ========================
+  // 让所有打开网址的人共用一个榜，按以下步骤配置（约 5 分钟）：
+  //   1. 打开 https://console.leancloud.cn 注册登录，新建一个「开发版」免费应用
+  //   2. 设置 → 应用凭证：复制 AppID 和 AppKey（客户端 Key）
+  //   3. 设置 → 应用信息：复制「服务器地址」（形如 https://xxxx.api.lncld.com）
+  //   4. 把下方 CLOUD_ENABLED 改为 true，并填好三个常量
+  //   5. 若上传报权限错误：控制台 → 数据存储 → 找到自动创建的 Score 类
+  //      → 点进去选「权限」→ 设为：所有用户可读、所有用户可写
+  // 不配置 = 自动使用本地排行榜，完全不影响游戏。
+  const CLOUD_ENABLED = false;
+  const LC_APP_ID = '';
+  const LC_APP_KEY = '';
+  const LC_API_BASE = 'https://你的服务器地址.api.lncld.com';
+
+  function cloudFetch(path, opts) {
+    return fetch(LC_API_BASE + '/1.1/' + path, Object.assign({
+      method: 'GET',
+      headers: {
+        'X-LC-Id': LC_APP_ID,
+        'X-LC-Key': LC_APP_KEY,
+        'Content-Type': 'application/json'
+      }
+    }, opts || {}));
+  }
+
+  // 上传本局得分（失败静默，不影响本地榜）
+  function cloudSubmit(entry) {
+    if (!CLOUD_ENABLED) return;
+    cloudFetch('classes/Score', {
+      method: 'POST',
+      body: JSON.stringify({ name: entry.name, score: entry.score, ts: entry.ts })
+    }).catch(function () {});
+  }
+
+  // 拉取全球前 10（失败返回 null → 界面自动回退本地榜）
+  function cloudLoad() {
+    if (!CLOUD_ENABLED) return Promise.resolve(null);
+    return cloudFetch('classes/Score?order=-score&limit=10')
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d || !Array.isArray(d.results)) return null;
+        return d.results.map(function (o) {
+          return { name: o.name || '玩家', score: o.score || 0, ts: o.ts || 0 };
+        });
+      })
+      .catch(function () { return null; });
   }
 
   // ======================== 音频（WebAudio，可静音） ========================
