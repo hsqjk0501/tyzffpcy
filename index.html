@@ -665,17 +665,7 @@
     }
     ctx.restore();
 
-    // 高光（只给大水果画、且移向边缘，避免小水果看起来"中间有个点"）
-    if (r >= 18) {
-      ctx.save();
-      ctx.rotate(rot * 0.06);
-      ctx.scale(sx, sy);
-      ctx.beginPath();
-      ctx.arc(-r * 0.32, -r * 0.32, r * 0.13, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(255,255,255,0.45)';
-      ctx.fill();
-      ctx.restore();
-    }
+    // 高光已移除：照片不是水果，不需要模拟光泽
 
     // 描边（不挤压，保持圆感）
     ctx.beginPath();
