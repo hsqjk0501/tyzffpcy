@@ -60,6 +60,13 @@
     display: flex; flex-direction: column;
   }
   .board-title { font-size: 1.15rem; font-weight: 800; color: #3d2b1a; text-align: center; margin-bottom: 8px; }
+  .board-tabs { display: flex; gap: 8px; margin-bottom: 8px; }
+  .board-tab {
+    flex: 1; border: none; border-radius: 10px; padding: 6px 0; cursor: pointer;
+    background: #f0e5d0; color: #6b4f2e; font-size: .85rem; font-weight: 700;
+    box-shadow: inset 0 1px 2px rgba(61,43,26,.12); transition: .1s;
+  }
+  .board-tab.active { background: #6b4f2e; color: #fff; box-shadow: none; }
   .board-tip { text-align: center; font-size: .85rem; color: #7a5a33; font-weight: 600; margin-bottom: 8px; min-height: 1.2em; }
   .board-list { overflow-y: auto; flex: 1; min-height: 120px; }
   .board-row {
@@ -96,9 +103,9 @@
       <div class="score-best">🏆 最高 <span id="bestDisplay">0</span></div>
     </div>
     <div class="btn-group">
-      <button class="icon-btn" id="boardButton" title="排行榜">🏆</button>
-      <button class="icon-btn" id="soundButton" title="音效开关">🔊</button>
-      <button class="restart-btn" id="restartButton">↻ 重开</button>
+      <button type="button" class="icon-btn" id="boardButton" title="排行榜">🏆</button>
+      <button type="button" class="icon-btn" id="soundButton" title="音效开关">🔊</button>
+      <button type="button" class="restart-btn" id="restartButton">↻ 重开</button>
     </div>
   </div>
   <canvas id="gameCanvas"></canvas>
@@ -108,12 +115,16 @@
   <div class="board-overlay" id="boardOverlay" hidden>
     <div class="board-panel">
       <div class="board-title">🏆 排行榜</div>
+      <div class="board-tabs">
+        <button type="button" class="board-tab active" id="tabRank">🏆 排行</button>
+        <button type="button" class="board-tab" id="tabHistory">📜 记录</button>
+      </div>
       <div class="board-tip" id="boardTip"></div>
       <div class="board-list" id="boardList"></div>
       <div class="board-foot">
-        <button class="board-btn" id="boardRename">✏️ 改名</button>
+        <button type="button" class="board-btn" id="boardRename">✏️ 改名</button>
         <span class="board-cur" id="boardName"></span>
-        <button class="board-btn" id="boardAgain">↻ 再来一局</button>
+        <button type="button" class="board-btn" id="boardAgain">↻ 再来一局</button>
       </div>
     </div>
   </div>
@@ -136,6 +147,8 @@
   const boardName = document.getElementById('boardName');
   const boardRename = document.getElementById('boardRename');
   const boardAgain = document.getElementById('boardAgain');
+  const tabRank = document.getElementById('tabRank');
+  const tabHistory = document.getElementById('tabHistory');
 
   const CANVAS_W = 360, CANVAS_H = 560;
   const DPR = Math.min(2, window.devicePixelRatio || 1);   // 高分屏清晰渲染
@@ -238,12 +251,26 @@
   // 本地榜：每台设备各自保存自己的 Top 榜，离线可用。
   // 全球榜：在下方配置腾讯云 CloudBase（免费）后，所有打开网址的人共用一个榜。
   const BOARD_KEY = 'zffBoard_v1';
+  const HISTORY_KEY = 'zffHistory_v1';  // 全部游戏记录（每局都保存，最多 200 局）
   const NAME_KEY = 'zffName';
   let playerName = '玩家';
   try { playerName = localStorage.getItem(NAME_KEY) || '玩家'; } catch (e) {}
   let board = [];
+  let history = [];    // 每次玩的记录（新 → 旧）
   let lastEntryTs = 0;   // 本局得分记录的时间戳（用于高亮）
   let paused = false;    // 排行榜打开时暂停游戏
+  let boardTab = 'rank'; // 排行榜页签：'rank' 排行 / 'history' 全部记录
+
+  function loadHistory() {
+    try {
+      const a = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+      history = Array.isArray(a) ? a : [];
+    } catch (e) { history = []; }
+  }
+  function saveHistory() {
+    try { localStorage.setItem(HISTORY_KEY, JSON.stringify(history)); } catch (e) {}
+  }
+  loadHistory();
 
   function loadBoard() {
     try {
@@ -257,13 +284,17 @@
 
   // 提交本局得分（默认信息：昵称默认"玩家"，可点"改名"修改）
   function submitScore(sc) {
-    if (!(sc > 0)) return null;
-    const entry = { name: playerName, score: sc, ts: Date.now() };
+    const entry = { name: playerName, score: Math.max(0, sc), ts: Date.now() };
+    // 全部记录：每次游戏结束都保存（保留最近 200 局，新→旧）
+    history.unshift(entry);
+    if (history.length > 200) history.length = 200;
+    saveHistory();
+    lastEntryTs = entry.ts;
+    if (!(sc > 0)) return null;          // 0 分只进记录，不进排行榜
     board.push(entry);
     board.sort((a, b) => b.score - a.score || a.ts - b.ts);
     board = board.slice(0, 20);
     saveBoard();
-    lastEntryTs = entry.ts;
     cloudSubmit(entry);   // 同步上传全球榜（未配置时为空操作）
     return entry;
   }
@@ -309,11 +340,45 @@
     }).join('');
   }
 
+  // 全部记录：每局都保存（新→旧）
+  function renderHistory() {
+    boardName.textContent = playerName;
+    if (history.length === 0) {
+      boardTip.textContent = '还没有记录，玩一局试试！';
+      boardList.innerHTML = '';
+      return;
+    }
+    boardTip.textContent = '📜 共 ' + history.length + ' 局记录（每局都保存，最多 200 局）';
+    boardList.innerHTML = history.map(function (e, i) {
+      const cls = 'board-row' + (e.ts === lastEntryTs ? ' me' : '');
+      return '<div class="' + cls + '">' +
+        '<span class="rk">' + (i + 1) + '</span>' +
+        '<span class="nm">' + escHtml(e.name) + '</span>' +
+        '<span class="sc">' + e.score + '</span>' +
+        '<span class="dt">' + fmtTime(e.ts) + '</span>' +
+        '</div>';
+    }).join('');
+  }
+
+  function setTab(tab) {
+    boardTab = tab;
+    if (tab === 'history') {
+      tabHistory.classList.add('active');
+      tabRank.classList.remove('active');
+      renderHistory();
+    } else {
+      tabRank.classList.add('active');
+      tabHistory.classList.remove('active');
+      renderBoard(board.slice(0, 10), 'local');
+    }
+  }
+
   function showBoard() {
-    renderBoard(board.slice(0, 10), 'local');
+    setTab(boardTab);        // 保持当前页签（排行 or 记录）
     boardOverlay.hidden = false;
     paused = true;
-    // 异步拉取全球榜，拉到后自动替换显示（失败则保持本地榜）
+    // 异步拉取全球榜，拉到后自动替换显示（失败则保持本地榜；记录页签不拉）
+    if (boardTab !== 'rank') return;
     cloudLoad().then(function (list) {
       if (list && list.length && boardOverlay.hidden === false) renderBoard(list, 'cloud');
     });
@@ -418,13 +483,15 @@
 
   // ---------- 排行榜交互 ----------
   boardButton.addEventListener('click', showBoard);
+  tabRank.addEventListener('click', function () { setTab('rank'); });
+  tabHistory.addEventListener('click', function () { setTab('history'); });
   boardRename.addEventListener('click', function () {
     const name = prompt('输入昵称（排行榜显示用）：', playerName);
     if (name === null) return;              // 点了取消
     const n = name.trim() || '玩家';
     playerName = n;
     try { localStorage.setItem(NAME_KEY, n); } catch (e) {}
-    renderBoard();
+    if (boardTab === 'history') renderHistory(); else renderBoard();
   });
   boardAgain.addEventListener('click', function () {
     closeBoard();
