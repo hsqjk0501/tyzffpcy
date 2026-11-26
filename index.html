@@ -204,7 +204,7 @@
     const img = new Image();
     fruitImages[idx] = img;
     imgLoaded[idx] = false;
-    let remoteTried = false;
+    let tryState = 0;               // 0=photos/本地照片 1=内置base64 2=远程兜底
     img.onload = function () {
       if (!imgLoaded[idx]) {
         imgLoaded[idx] = true;
@@ -213,8 +213,11 @@
       }
     };
     img.onerror = function () {
-      if (!remoteTried) {           // 内嵌图异常 → 用 jsdelivr 远程兜底
-        remoteTried = true;
+      if (tryState === 0) {         // photos/ 下没有这张照片 → 用内置照片
+        tryState = 1;
+        img.src = dataUri;
+      } else if (tryState === 1) {  // 内置图异常（几乎不可能）→ 远程兜底
+        tryState = 2;
         img.crossOrigin = 'anonymous';
         img.src = REMOTE_BASE + PHOTO_SOURCES[idx];
       } else {                      // 都失败 → 永远用彩色+表情兜底渲染
@@ -222,7 +225,9 @@
         if (imagesDone === PHOTO_DATA.length) allImagesReady = true;
       }
     };
-    img.src = dataUri;              // 内嵌 base64，无需网络
+    // 优先加载 photos/ 目录下的照片：按 0.jpg~10.jpg 命名（0=樱桃…10=哈密瓜），
+    // 直接替换文件并刷新即可换照片；?t= 时间戳防止浏览器缓存旧照片
+    img.src = 'photos/' + idx + '.jpg?t=' + Date.now();
   });
 
   // ======================== 状态 ========================
