@@ -585,6 +585,7 @@
     }
 
     // 3. 水果互撞（迭代 3 遍：整堆多接触同时收敛，不留残余嵌入）
+    const contacts = new Array(fruits.length).fill(0);
     for (let iter = 0; iter < 3; iter++) {
       for (let i = 0; i < fruits.length; i++) {
         for (let j = i + 1; j < fruits.length; j++) {
@@ -592,7 +593,9 @@
           const dx = b.x - a.x, dy = b.y - a.y;
           const dist = Math.hypot(dx, dy);
           const minDist = a.r + b.r;
-          if (dist >= minDist || dist === 0) continue;
+          if (dist === 0) continue;
+          if (dist < minDist + 0.5) { contacts[i]++; contacts[j]++; }   // 接触计数（含恰好贴合，用于支撑锁定）
+          if (dist >= minDist) continue;
 
           const nx = dx / dist, ny = dy / dist;
           const overlap = minDist - dist;
@@ -634,11 +637,18 @@
       }
     }
 
-    // 4. 静止锁定：速度极小的球直接停住；低速蠕动的球加接触阻尼（堆叠彻底稳定）
-    for (const f of fruits) {
+    // 4. 静止锁定 + 接触阻尼：
+    //    - 接触中的球：速度按 0.985 衰减（压住"永动互弹"的持续泵能）
+    //    - 有支撑且低速的球：直接停住（绝不冻结空中球，否则下落变慢）
+    for (let i = 0; i < fruits.length; i++) {
+      const f = fruits[i];
       const sp2 = Math.abs(f.vx) + Math.abs(f.vy);
-      if (sp2 < 0.2) { f.vx = 0; f.vy = 0; }
-      else if (sp2 < 0.7) { f.vx *= 0.9; f.vy *= 0.9; }
+      if (sp2 >= 1.4) continue;                  // 快速运动（下落/撞击）不干预
+      const onFloor = f.y + f.r >= FLOOR_Y - 0.5;
+      const supported = onFloor || contacts[i] > 0;
+      if (!supported) continue;                  // 空中球不锁定（防止冻在半空、下落变慢）
+      if (sp2 < 0.85) { f.vx = 0; f.vy = 0; }    // 有支撑且较慢 → 直接停住
+      else { f.vx *= 0.9; f.vy *= 0.9; }         // 有支撑的中速球衰减至停住
     }
   }
 
