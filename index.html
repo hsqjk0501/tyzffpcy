@@ -162,11 +162,11 @@
   const GROUND_FRICTION = 0.75;
   const RESTITUTION     = 0.55;
   const WALL_BOUNCE     = 0.5;
-  const FRUIT_BOUNCE    = 0.45;
+  const FRUIT_BOUNCE    = 0.25;   // 水果互撞回弹：低一点堆叠更稳（不永动互弹）
   const MAX_SPEED       = 14;      // 限速防穿透（原版定义了却没用）
-  const SUBSTEPS        = 4;
+  const SUBSTEPS        = 6;      // 子步数：越高堆叠越稳（连续掉球不互相嵌入）
   const REST_THRESHOLD  = 0.15;
-  const POS_CORRECT     = 0.4;
+  const POS_CORRECT     = 0.75;   // 堆叠分离强度：越高越不容易互相嵌入
   const SPAWN_DELAY     = 10;      // 掉落后下一个水果出现的帧数（防误触/观感更顺）
 
   const RADII  = [12, 16, 22, 28, 35, 43, 52, 62, 73, 85, 100];
@@ -584,34 +584,61 @@
       if (f.x + f.r > RIGHT_WALL) { f.x = RIGHT_WALL - f.r; if (f.vx > 0) f.vx = -f.vx * WALL_BOUNCE; }
     }
 
-    // 3. 水果互撞（冲量 + 软分离 + 挤压）
-    for (let i = 0; i < fruits.length; i++) {
-      for (let j = i + 1; j < fruits.length; j++) {
-        const a = fruits[i], b = fruits[j];
-        const dx = b.x - a.x, dy = b.y - a.y;
-        const dist = Math.hypot(dx, dy);
-        const minDist = a.r + b.r;
-        if (dist >= minDist || dist === 0) continue;
+    // 3. 水果互撞（迭代 3 遍：整堆多接触同时收敛，不留残余嵌入）
+    for (let iter = 0; iter < 3; iter++) {
+      for (let i = 0; i < fruits.length; i++) {
+        for (let j = i + 1; j < fruits.length; j++) {
+          const a = fruits[i], b = fruits[j];
+          const dx = b.x - a.x, dy = b.y - a.y;
+          const dist = Math.hypot(dx, dy);
+          const minDist = a.r + b.r;
+          if (dist >= minDist || dist === 0) continue;
 
-        const nx = dx / dist, ny = dy / dist;
-        const overlap = minDist - dist;
-        const mA = a.r * a.r, mB = b.r * b.r, mTotal = mA + mB;
+          const nx = dx / dist, ny = dy / dist;
+          const overlap = minDist - dist;
+          const mA = a.r * a.r, mB = b.r * b.r, mTotal = mA + mB;
 
-        const corr = overlap * POS_CORRECT * 0.5;
-        a.x -= nx * corr * (mB / mTotal); a.y -= ny * corr * (mB / mTotal);
-        b.x += nx * corr * (mA / mTotal); b.y += ny * corr * (mA / mTotal);
+          // 位置修正（边界感知）：被地面/墙挡住的水果不动，对方承担全部修正
+          // 否则"地面把球往上顶 + 碰撞把球往下推"会形成永不衰减的振荡（堆叠压缩）
+          const corr = overlap * POS_CORRECT;
+          const moveA = corr * (mB / mTotal);
+          const moveB = corr * (mA / mTotal);
+          const ax2 = a.x - nx * moveA, ay2 = a.y - ny * moveA;
+          const bx2 = b.x + nx * moveB, by2 = b.y + ny * moveB;
+          const aBlocked = ax2 - a.r < LEFT_WALL || ax2 + a.r > RIGHT_WALL || ay2 + a.r > FLOOR_Y;
+          const bBlocked = bx2 - b.r < LEFT_WALL || bx2 + b.r > RIGHT_WALL || by2 + b.r > FLOOR_Y;
+          if (aBlocked && !bBlocked) { b.x += nx * corr; b.y += ny * corr; }
+          else if (bBlocked && !aBlocked) { a.x -= nx * corr; a.y -= ny * corr; }
+          else { a.x -= nx * moveA; a.y -= ny * moveA; b.x += nx * moveB; b.y += ny * moveB; }
 
-        const rvx = b.vx - a.vx, rvy = b.vy - a.vy;
-        const vn = rvx * nx + rvy * ny;
-        if (vn > 0) continue;
+          const rvx = b.vx - a.vx, rvy = b.vy - a.vy;
+          const vn = rvx * nx + rvy * ny;
+          if (vn > 0) continue;
 
-        const jImp = -(1 + FRUIT_BOUNCE) * vn / (1 / mA + 1 / mB);
-        a.vx -= (jImp * nx) / mA; a.vy -= (jImp * ny) / mA;
-        b.vx += (jImp * nx) / mB; b.vy += (jImp * ny) / mB;
+          // 冲量：被挡住的一方按"无限质量"处理，对方承担全部反弹
+          const jImp = -(1 + FRUIT_BOUNCE) * vn / (1 / mA + 1 / mB);
+          if (aBlocked && !bBlocked) {
+            b.vx += -(1 + FRUIT_BOUNCE) * vn * nx;
+            b.vy += -(1 + FRUIT_BOUNCE) * vn * ny;
+          } else if (bBlocked && !aBlocked) {
+            a.vx -= -(1 + FRUIT_BOUNCE) * vn * nx;
+            a.vy -= -(1 + FRUIT_BOUNCE) * vn * ny;
+          } else {
+            a.vx -= (jImp * nx) / mA; a.vy -= (jImp * ny) / mA;
+            b.vx += (jImp * nx) / mB; b.vy += (jImp * ny) / mB;
+          }
 
-        const impact = Math.abs(vn);
-        if (impact > 0.8) { a.squashVel -= impact * 0.005; b.squashVel -= impact * 0.005; }
+          const impact = Math.abs(vn);
+          if (impact > 0.8) { a.squashVel -= impact * 0.005; b.squashVel -= impact * 0.005; }
+        }
       }
+    }
+
+    // 4. 静止锁定：速度极小的球直接停住；低速蠕动的球加接触阻尼（堆叠彻底稳定）
+    for (const f of fruits) {
+      const sp2 = Math.abs(f.vx) + Math.abs(f.vy);
+      if (sp2 < 0.2) { f.vx = 0; f.vy = 0; }
+      else if (sp2 < 0.7) { f.vx *= 0.9; f.vy *= 0.9; }
     }
   }
 
