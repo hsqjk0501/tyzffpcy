@@ -7,6 +7,8 @@ echo   If a GitHub sign-in window pops up,
 echo   please complete the login there.
 echo ============================================
 echo.
+git add index.html photos/ change-photos.ps1
+git diff --cached --quiet || git commit -m "update photos"
 git push origin main
 if errorlevel 1 goto fail
 echo.
