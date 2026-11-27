@@ -15,12 +15,18 @@ if (-not (Test-Path $srcDir)) {
   exit 1
 }
 
-$files = Get-ChildItem $srcDir -File | Where-Object { $_.Extension -match '^\.(jpg|jpeg|png|bmp|gif)$' } | Sort-Object { [regex]::Replace($_.BaseName, '\d+', { param($m) $m.Value.PadLeft(8, '0') }) }
+$sortRule = { [regex]::Replace($_.BaseName, '\d+', { param($m) $m.Value.PadLeft(8, '0') }) }
+$files = Get-ChildItem $srcDir -File | Where-Object { $_.Extension -match '^\.(jpg|jpeg|png|bmp|gif)$' } | Sort-Object $sortRule
 if ($files.Count -lt 11) {
-  Write-Host "「照片源」文件夹里只有 $($files.Count) 张图片，需要至少 11 张。" -ForegroundColor Red
-  Write-Host '第1张=0号樱桃，第2张=1号橙子 …… 第11张=10号哈密瓜。' -ForegroundColor Cyan
-  Read-Host '按回车键退出'
-  exit 1
+  # 照片源不足 → 直接用 photos/ 里的照片同步游戏内置图片
+  $files = Get-ChildItem $outDir -File | Where-Object { $_.Extension -match '^\.(jpg|jpeg)$' } | Sort-Object $sortRule
+  if ($files.Count -lt 11) {
+    Write-Host "「照片源」文件夹里只有 $($files.Count) 张图片，photos/ 里也不足 11 张，无法继续。" -ForegroundColor Red
+    Write-Host '第1张=0号樱桃，第2张=1号橙子 …… 第11张=10号哈密瓜。' -ForegroundColor Cyan
+    Read-Host '按回车键退出'
+    exit 1
+  }
+  Write-Host '「照片源」里没有 11 张照片，改用 photos/ 里的照片同步游戏内置图片。' -ForegroundColor Yellow
 }
 
 $names = @('樱桃','橙子','柠檬','西瓜','葡萄','桃子','菠萝','猕猴桃','苹果','梨','哈密瓜')
