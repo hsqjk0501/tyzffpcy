@@ -1,6 +1,5 @@
 ﻿# 换照片工具：把「照片源」文件夹里的 11 张照片压缩成 photos/0.jpg~10.jpg 并推送上线
 # 用法：把照片放进「照片源」文件夹（第1张=0号樱桃，第11张=10号哈密瓜），双击 换照片.bat
-$ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 Add-Type -AssemblyName System.Drawing
 
@@ -16,7 +15,7 @@ if (-not (Test-Path $srcDir)) {
   exit 1
 }
 
-$files = Get-ChildItem $srcDir -File | Where-Object { $_.Extension -match '^\.(jpg|jpeg|png|bmp|gif)$' } | Sort-Object Name
+$files = Get-ChildItem $srcDir -File | Where-Object { $_.Extension -match '^\.(jpg|jpeg|png|bmp|gif)$' } | Sort-Object { [regex]::Replace($_.BaseName, '\d+', { param($m) $m.Value.PadLeft(8, '0') }) }
 if ($files.Count -lt 11) {
   Write-Host "「照片源」文件夹里只有 $($files.Count) 张图片，需要至少 11 张。" -ForegroundColor Red
   Write-Host '第1张=0号樱桃，第2张=1号橙子 …… 第11张=10号哈密瓜。' -ForegroundColor Cyan
@@ -50,10 +49,29 @@ for ($i = 0; $i -lt 11; $i++) {
   Write-Host "  [$i] $($names[$i])  <-  $($f.Name)"
 }
 Write-Host ''
-Write-Host '照片已生成，正在推送到 GitHub...' -ForegroundColor Cyan
+Write-Host '正在把新照片写入游戏（替换内置图片）...' -ForegroundColor Cyan
+
+# 替换 index.html 里的内置照片（base64）——推送后游戏直接使用新照片
+$indexPath = Join-Path $PSScriptRoot 'index.html'
+$html = [IO.File]::ReadAllText($indexPath, [Text.Encoding]::UTF8)
+$sb = New-Object System.Text.StringBuilder
+[void]$sb.Append('  const PHOTO_DATA = [')
+for ($i = 0; $i -lt 11; $i++) {
+  $bytes = [IO.File]::ReadAllBytes((Join-Path $outDir "$i.jpg"))
+  $b64 = [Convert]::ToBase64String($bytes)
+  $comma = ''
+  if ($i -lt 10) { $comma = ',' }
+  [void]$sb.AppendLine("  'data:image/jpeg;base64,$b64'$comma")
+}
+[void]$sb.AppendLine('  ];')
+$newBlock = $sb.ToString()
+$newHtml = [regex]::Replace($html, 'const PHOTO_DATA = \[[\s\S]*?\];', [System.Text.RegularExpressions.MatchEvaluator]{ param($m) $newBlock })
+[IO.File]::WriteAllText($indexPath, $newHtml, (New-Object System.Text.UTF8Encoding $false))
+Write-Host '游戏内置照片已替换（index.html），准备推送...' -ForegroundColor Cyan
 
 # 提交并推送
-$null = & git add photos/
+$null = & git add index.html photos/ change-photos.ps1
+$null = & git -c user.name='hsqjk0501' -c user.email='656604707@qq.com' commit -m "update photos"
 $null = & git -c user.name='hsqjk0501' -c user.email='656604707@qq.com' commit -m "update photos"
 $pushOut = & git push origin main 2>&1 | Out-String
 if ($LASTEXITCODE -ne 0) {
